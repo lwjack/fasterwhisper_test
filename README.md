@@ -21,6 +21,13 @@ The module can be installed from [PyPI](https://pypi.org/project/faster-whisper/
 ```bash
 pip install faster-whisper
 ```
+
+### Install Pytorch
+
+```bash
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+```
+Download other versions of Pytorch: https://pytorch.org/get-started/locally/
 ## Usage
 
 ### fwcode.py
