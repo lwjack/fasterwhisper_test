@@ -60,6 +60,11 @@ for segment in segments:
 
 The module can transcribe a sound input in real-time, but it needs a sound device.
 
+### Install sound device in your Python venv or anaconda
+```bash
+pip install sounddevice
+```
+
 ```python
 import sounddevice as sd
 import numpy as np
