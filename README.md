@@ -30,7 +30,9 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 Download other versions of Pytorch: https://pytorch.org/get-started/locally/
 ## Usage
 
-### fwcode.py
+### faster-whisper_v1.py
+
+Upload MP3 file, then transcribe or translate.
 
 ```python
 from faster_whisper import WhisperModel
@@ -56,74 +58,182 @@ for segment in segments:
     print("[%.2fs -> %.2fs] %s" % (segment.start, segment.end, segment.text))
 ```
 
-### realtime.py
+### faster-whisper_v2.py
 
-The module can transcribe a sound input in real-time, but it needs a sound device.
-
-### Install sound device in your Python venv or anaconda
-```bash
-pip install sounddevice
-```
+The module can transcribe a sound input in real-time within 5 seconds.
 
 ```python
-import sounddevice as sd
-import numpy as np
-import queue
-import threading
-from faster_whisper import WhisperModel
+import pip
+
+#pip.main(['install', 'pyaudio'])
+import pyaudio
+
+#pip.main(['install', 'wave'])
+import wave
+
+#pip.main(['install', 'tempfile'])
+import tempfile
+
+#pip.main(['install', 'os'])
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-#settings 
-samplerate = 16000
-block_duration = 0.5 #seconds
-chunk_duration = 2 #seconds
-channels = 1
+#pip.main(['install', 'faster-whisper'])
+from faster_whisper import WhisperModel
 
-frames_per_block = int(samplerate * block_duration)
-frames_per_chunk = int(samplerate * chunk_duration)
 
-audio_queue = queue.Queue()
-audio_buffer = []
+# Configuration for PyAudio
+FORMAT = pyaudio.paInt16      # 16-bit int sampling format
+CHANNELS = 1                  # Mono audio
+RATE = 16000                 # Sampling rate expected by Whisper (16kHz)
+CHUNK = 1024                 # Buffer size
+RECORD_SECONDS = 5           # Duration per audio chunk
 
-# Model setup: medium + float32
-model = WhisperModel("medium", device="cuda", compute_type="float32")
+# Initialize PyAudio and Whisper
+p = pyaudio.PyAudio()
+model = WhisperModel("medium", device="cuda", compute_type="float16")
 
-def audio_callback(indata, frame , time, status):
-    if status:
-        print(status)
-    audio_queue.put(indata.copy())
+# Open microphone stream
+stream = p.open(format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                frames_per_buffer=CHUNK)
 
-def recorder():
-    with sd.InputStream(samplerate=samplerate, channels=channels, callback=audio_callback, blocksize=frames_per_block):
-        print("Listening... Press Ctrl+c to stop")
-        while True:
-            sd.sleep(100)
+print("Starting streaming microphone transcription. Press Ctrl+C to stop.")
 
-def trancriber():
-    global audio_buffer
+try:
     while True:
-        block = audio_queue.get()
-        audio_buffer.append(block)
+        print(f"\n🎤 Recording {RECORD_SECONDS} seconds...Press Ctrl+C to stop.")
+        frames = []
 
-        total_frames = sum(len(b) for b in audio_buffer)
-        if total_frames >= frames_per_chunk:
-            audio_data = np.concatenate(audio_buffer)[:frames_per_chunk]
-            audio_buffer = [] #clear buffer
+        # Read audio data chunk by chunk
+        for _ in range(0, int(RATE / CHUNK * RECORD_SECONDS)):
+            data = stream.read(CHUNK)
+            frames.append(data)
 
-            audio_data = audio_data.flatten().astype(np.float32)
+        # Save recorded chunk to a temporary WAV file
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+            wf = wave.open(tmp_file.name, 'wb')
+            wf.setnchannels(CHANNELS)
+            wf.setsampwidth(p.get_sample_size(FORMAT))
+            wf.setframerate(RATE)
+            wf.writeframes(b''.join(frames))
+            wf.close()
 
-            # Transcription without timestamps
-            segments, _= model.transcribe(
-            audio_data,
-            beam_size=1 # Max speed
-            )
+            # Transcribe audio chunk with faster-whisper
+            segments, info = model.transcribe(tmp_file.name, beam_size=5)
+
+            # Print detected language
+            print(f"🌐 Language detected: {info.language} (Confidence: {info.language_probability:.2f})")
+
+            # Print transcription segments
             for segment in segments:
-                print(f"{segment.text}")
-    
-# Start threads
-threading.Thread(target=recorder, daemon=True).start()
-trancriber()
+                print(f"[{segment.start:.2f}s -> {segment.end:.2f}s] {segment.text}")
+
+        # Remove temporary audio file
+        os.remove(tmp_file.name)
+
+except KeyboardInterrupt:
+    print("\n✅ Stopped transcription.")
+
+finally:
+    # Clean up PyAudio stream
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
 ```
+### faster-whisper_v3.py
 
+The module can transcribe a sound input in real-time when the person stops speaking.
 
+```python
+# environment settings
+import pyaudio                          # pip install pyaudio
+import numpy as np                      # pip install numpy
+import wave                             # pip install wave
+import os                               # pip install os
+import tempfile                         # pip install tempfile
+from faster_whisper import WhisperModel # pip install faster-whisper
+import webrtcvad                        # pip install webrtcvad
+                                        # pip install cuda
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+# Configuration for PyAudio
+FORMAT = pyaudio.paInt16      # 16-bit int sampling format
+CHANNELS = 1                  # Mono audio
+RATE = 16000                 # Sampling rate expected by Whisper (16kHz)
+CHUNK = 1024                 # Buffer size
+
+# Initialize PyAudio and Whisper
+p = pyaudio.PyAudio()
+model = WhisperModel("medium", device="cuda", compute_type="float16")
+vad = webrtcvad.Vad(2) # Set VAD mode (0-3, 3 is most aggressive)
+
+# Open microphone stream
+def is_speech(frame, sample_rate):
+    return vad.is_speech(frame, sample_rate)
+
+stream = p.open(format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                frames_per_buffer=CHUNK)
+
+print("Starting streaming microphone transcription. Press Ctrl+C to stop.")
+
+try:
+    while True:
+        frames = []
+        silence_chunks = 0
+        speaking = False
+
+        print("\nListening for speech...Press Ctrl+C to stop.")
+
+        while True:
+            data = stream.read(CHUNK)
+            # VAD expects 20ms, 30ms, or 10ms frames. 1024 samples at 16kHz is 64ms, so trim or split as needed.
+            frame = data[:640]  # 20ms at 16kHz, 16-bit mono = 640 bytes
+            if is_speech(frame, RATE):
+                frames.append(data)
+                silence_chunks = 0
+                speaking = True
+            else:
+                if speaking:
+                    silence_chunks += 1
+                    frames.append(data)
+                # Stop after 1 second of silence (adjust as needed)
+                if silence_chunks > int(RATE / CHUNK * 1):
+                    break
+
+        if frames:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
+                wf = wave.open(tmp_file.name, 'wb')
+                wf.setnchannels(CHANNELS)
+                wf.setsampwidth(p.get_sample_size(FORMAT))
+                wf.setframerate(RATE)
+                wf.writeframes(b''.join(frames))
+                wf.close()
+
+            # Transcribe audio chunk with faster-whisper
+            segments, info = model.transcribe(tmp_file.name, beam_size=5)
+
+            # Print detected language
+            print(f"🌐 Language detected: {info.language} (Confidence: {info.language_probability:.2f})")
+
+            # Print transcription segments
+            for segment in segments:
+                print(f"[{segment.start:.2f}s -> {segment.end:.2f}s] {segment.text}")
+
+        # Remove temporary audio file
+        os.remove(tmp_file.name)
+
+except KeyboardInterrupt:
+    print("\n✅ Stopped transcription.")
+
+finally:
+    # Clean up PyAudio stream
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
+```
