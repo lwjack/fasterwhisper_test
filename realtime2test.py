@@ -1,5 +1,3 @@
-import pip
-pip.main(['install', 'sounddevice'])
 import sounddevice as sd
 import numpy as np
 import queue

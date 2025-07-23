@@ -1,18 +1,21 @@
 import pip
-pip.main(['install', 'pyaudio'])
-pip.main(['install', 'numpy'])
-pip.main(['install', 'wave'])
-pip.main(['install', 'tempfile'])
-pip.main(['install', 'torchaudio'])
-pip.main(['install', 'torch'])
-pip.main(['install', 'os'])
-pip.main(['install', 'faster-whisper'])
 
+#pip.main(['install', 'pyaudio'])
 import pyaudio
+
+#pip.main(['install', 'wave'])
 import wave
+
+#pip.main(['install', 'tempfile'])
 import tempfile
+
+#pip.main(['install', 'os'])
 import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+#pip.main(['install', 'faster-whisper'])
 from faster_whisper import WhisperModel
+
 
 # Configuration for PyAudio
 FORMAT = pyaudio.paInt16      # 16-bit int sampling format
